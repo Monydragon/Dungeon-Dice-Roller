@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Dungeon Dice Roller</title>
+    <style>
+        * { box-sizing: border-box; }
+        body {
+            background-color: #121212;
+            color: #e0e0e0;
+            font-family: system-ui, -apple-system, sans-serif;
+            margin: 0;
+            padding: 0;
+            height: 100dvh; 
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+        
+        #header {
+            background-color: #1e1e1e;
+            padding: 15px;
+            text-align: center;
+            border-bottom: 2px solid #333;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.5);
+            z-index: 10;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        #top-bar {
+            width: 100%;
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 10px;
+        }
+
+        .icon-btn {
+            background-color: #333;
+            color: #fff;
+            border: none;
+            border-radius: 5px;
+            padding: 8px 12px;
+            font-size: 1rem;
+            cursor: pointer;
+            font-weight: bold;
+        }
+        .icon-btn:hover { background-color: #444; }
+        .icon-btn:active { transform: scale(0.95); }
+
+        #main-logo {
+    		width: 100%;              /* Allows it to stretch across the container */
+   		max-width: 500px;         /* Stops it from becoming pixelated on massive desktop monitors */
+    		height: auto;             /* Maintains the proper aspect ratio (no ugly stretching) */
+    		max-height: 25vh;         /* Prevents it from pushing the game off-screen on tiny phones */
+    		object-fit: contain;
+    		margin: 10px auto 20px auto; 
+    		filter: drop-shadow(0 4px 6px rgba(0, 0, 0, 0.8)); /* Adds a nice shadow to make it pop */
+	}
+        
+        #stats {
+            width: 100%;
+            display: flex;
+            justify-content: space-around;
+            font-weight: 800;
+            font-size: 1.2rem;
+            background-color: #0a0a0a;
+            padding: 10px;
+            border-radius: 8px;
+            border: 1px solid #333;
+        }
+        .stat-hp { color: #ff6b6b; }
+        .stat-room { color: #4dabf7; }
+
+        #story-log {
+            flex-grow: 1;
+            background-color: #0a0a0a;
+            padding: 20px;
+            overflow-y: auto;
+            font-family: 'Courier New', Courier, monospace;
+            font-size: 1.1rem;
+            line-height: 1.6;
+            scroll-behavior: smooth;
+        }
+        
+        .log-entry { 
+            margin-bottom: 15px; 
+            animation: fadeIn 0.3s ease-in;
+        }
+        .dm-text { color: #a9cce3; }
+        .player-text { color: #f9e79f; font-weight: bold; }
+        .damage-text { color: #ff6b6b; font-weight: bold; }
+        .success-text { color: #51cf66; font-weight: bold; }
+
+        #controls {
+            background-color: #1e1e1e;
+            padding: 15px;
+            border-top: 2px solid #333;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            padding-bottom: max(15px, env(safe-area-inset-bottom));
+        }
+
+        .input-row {
+            display: flex;
+            gap: 10px;
+        }
+
+        input[type="number"] {
+            flex-grow: 1;
+            padding: 15px;
+            font-size: 1.2rem;
+            background-color: #2a2a2a;
+            color: #fff;
+            border: 2px solid #444;
+            border-radius: 8px;
+            text-align: center;
+        }
+
+        button.action-btn {
+            padding: 15px;
+            font-size: 1.2rem;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: 900;
+            text-transform: uppercase;
+            transition: transform 0.1s, filter 0.2s;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 8px;
+        }
+        button.action-btn:active { transform: scale(0.96); }
+        button.action-btn:disabled { filter: grayscale(100%); opacity: 0.5; cursor: not-allowed; }
+
+        #submit-btn { background-color: #d4af37; color: #111; flex-grow: 1; }
+        #digital-btn { background-color: #8e44ad; color: white; width: 100%; }
+
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes shake {
+            0% { transform: translateX(0); }
+            25% { transform: translateX(-5px) rotate(-1deg); }
+            50% { transform: translateX(5px) rotate(1deg); }
+            75% { transform: translateX(-5px) rotate(-1deg); }
+            100% { transform: translateX(0); }
+        }
+        .shake { animation: shake 0.3s ease-in-out; }
+        
+        @keyframes flashGreen {
+            0% { background-color: #0a0a0a; }
+            50% { background-color: #143314; }
+            100% { background-color: #0a0a0a; }
+        }
+        .flash-green { animation: flashGreen 0.5s ease-out; }
+
+    </style>
+</head>
+<body>
+
+    <div id="header">
+        <div id="top-bar">
+            <button id="audio-toggle-btn" class="icon-btn">🔊 Sound On</button>
+            <button id="restart-anytime-btn" class="icon-btn">🔄 Restart</button>
+        </div>
+        
+        <img src="src/assets/dungeon_dice_roller_logo.jpg" id="main-logo" alt="Dungeon Dice Roller Logo">
+        
+        <div id="stats">
+            <span class="stat-hp">❤️ HP: <span id="hp-display">30</span></span>
+            <span class="stat-room">🚪 Depth: <span id="room-display">1</span>/10</span>
+        </div>
+    </div>
+    
+    <div id="story-log"></div>
+    
+    <div id="controls">
+        <button id="digital-btn" class="action-btn">🎲 Roll Digitally</button>
+        <div class="input-row">
+            <input type="number" id="dice-input" placeholder="Manual roll...">
+            <button id="submit-btn" class="action-btn">Submit</button>
+        </div>
+    </div>
+
+    <script src="src/main.js"></script>
+</body>
+</html>
