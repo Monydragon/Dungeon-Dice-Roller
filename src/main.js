@@ -1,6 +1,16 @@
 // --- AUDIO ENGINE ---
 const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
 let isMuted = false;
+const narratorSupported = 'speechSynthesis' in window && 'SpeechSynthesisUtterance' in window;
+const speechEngine = narratorSupported ? window.speechSynthesis : null;
+const NARRATOR_SETTINGS_KEY = 'ddr-narrator-settings';
+const narratorVoiceKeywords = {
+    female: ['female', 'woman', 'zira', 'samantha', 'victoria', 'ava', 'allison', 'aria', 'jenny', 'joanna', 'karen', 'moira', 'salli', 'serena', 'emma'],
+    male: ['male', 'man', 'david', 'mark', 'daniel', 'alex', 'fred', 'arthur', 'brian', 'george', 'james', 'oliver', 'ryan', 'steven', 'tom', 'guy', 'matthew']
+};
+let narratorEnabled = false;
+let narratorVoiceStyle = 'female';
+let selectedNarratorVoice = null;
 
 function playTone(freq, type, duration, vol=0.1) {
     if (isMuted) return; // Halt if audio is toggled off
@@ -44,6 +54,8 @@ let currentRoom = 0;
 const maxRooms = 10;
 let gameOver = false;
 let currentEncounter = null;
+let isRollPending = false;
+let runToken = 0;
 
 const adjectives = ["feral 🐺", "shadowy 🌑", "hulking 💪", "venomous 🐍", "undead 🧟", "flaming 🔥", "crystalline 💎", "cursed 🔮"];
 const monsters = ["Goblin", "Orc", "Skeleton", "Slime", "Troll", "Mimic", "Cultist", "Banshee", "Golem"];
@@ -59,14 +71,177 @@ const inputEl = document.getElementById('dice-input');
 const submitBtn = document.getElementById('submit-btn');
 const digitalBtn = document.getElementById('digital-btn');
 const audioToggleBtn = document.getElementById('audio-toggle-btn');
+const narratorToggleBtn = document.getElementById('narrator-toggle-btn');
 const restartAnytimeBtn = document.getElementById('restart-anytime-btn');
+const settingsToggleBtn = document.getElementById('settings-toggle-btn');
+const settingsPanelEl = document.getElementById('settings-panel');
+const narratorVoiceStatusEl = document.getElementById('narrator-voice-status');
+const narratorVoiceInputEls = Array.from(document.querySelectorAll('input[name="narrator-voice"]'));
+const virtualDiceToggleEl = document.getElementById('virtual-dice-toggle');
+const virtualDiceToggleLabelEl = document.getElementById('virtual-dice-toggle-label');
+const virtualDiceStageEl = document.getElementById('virtual-dice-stage');
+const virtualDieEl = document.getElementById('virtual-die');
+const virtualDieLabelEl = document.getElementById('virtual-die-label');
+const virtualDieValueEl = document.getElementById('virtual-die-value');
 
-function addLog(text, cssClass) {
+function addLog(text, cssClass, options = {}) {
+    const { narrate = false, narrationText = text } = options;
     const div = document.createElement('div');
     div.className = `log-entry ${cssClass}`;
     div.innerText = text;
     logEl.appendChild(div);
     logEl.scrollTo({ top: logEl.scrollHeight, behavior: 'smooth' });
+
+    if (narrate) {
+        speakNarration(narrationText);
+    }
+}
+
+function saveNarratorSettings() {
+    try {
+        localStorage.setItem(NARRATOR_SETTINGS_KEY, JSON.stringify({
+            narratorEnabled,
+            narratorVoiceStyle
+        }));
+    } catch (error) {
+        console.warn('Unable to save narrator settings.', error);
+    }
+}
+
+function loadNarratorSettings() {
+    try {
+        const savedSettings = localStorage.getItem(NARRATOR_SETTINGS_KEY);
+        if (!savedSettings) return;
+
+        const parsedSettings = JSON.parse(savedSettings);
+        narratorEnabled = parsedSettings.narratorEnabled === true;
+        narratorVoiceStyle = parsedSettings.narratorVoiceStyle === 'male' ? 'male' : 'female';
+    } catch (error) {
+        console.warn('Unable to load narrator settings.', error);
+    }
+}
+
+function getNarratorVoiceDescriptor(voice) {
+    return `${voice.name} ${voice.voiceURI} ${voice.lang}`.toLowerCase();
+}
+
+function chooseNarratorVoice() {
+    if (!narratorSupported) return null;
+
+    const voices = speechEngine.getVoices();
+    if (!voices.length) return null;
+
+    const englishVoices = voices.filter(voice => /^en(-|_)?/i.test(voice.lang) || /^en$/i.test(voice.lang));
+    const candidates = englishVoices.length ? englishVoices : voices;
+    const preferredKeywords = narratorVoiceKeywords[narratorVoiceStyle];
+    const otherKeywords = narratorVoiceKeywords[narratorVoiceStyle === 'female' ? 'male' : 'female'];
+
+    let bestVoice = null;
+    let bestScore = Number.NEGATIVE_INFINITY;
+
+    for (const voice of candidates) {
+        const descriptor = getNarratorVoiceDescriptor(voice);
+        let score = 0;
+
+        if (/^en-us/i.test(voice.lang)) score += 2;
+        else if (/^en/i.test(voice.lang)) score += 1;
+
+        if (voice.localService) score += 1;
+        if (voice.default) score += 1;
+        if (preferredKeywords.some(keyword => descriptor.includes(keyword))) score += 6;
+        if (otherKeywords.some(keyword => descriptor.includes(keyword))) score -= 3;
+
+        if (score > bestScore) {
+            bestScore = score;
+            bestVoice = voice;
+        }
+    }
+
+    return bestVoice;
+}
+
+function syncNarratorVoiceSelection() {
+    selectedNarratorVoice = chooseNarratorVoice();
+
+    if (!narratorSupported) {
+        narratorVoiceStatusEl.innerText = 'Speech narration is not supported in this browser.';
+        return;
+    }
+
+    if (!selectedNarratorVoice) {
+        narratorVoiceStatusEl.innerText = 'Voice list is still loading. Your browser default will be used until it is ready.';
+        return;
+    }
+
+    const voiceStyleLabel = narratorVoiceStyle === 'male' ? 'Male' : 'Female';
+    narratorVoiceStatusEl.innerText = `${voiceStyleLabel} narrator: ${selectedNarratorVoice.name} (${selectedNarratorVoice.lang}).`;
+}
+
+function syncNarratorVoiceInputs() {
+    narratorVoiceInputEls.forEach(inputEl => {
+        inputEl.checked = inputEl.value === narratorVoiceStyle;
+        inputEl.disabled = !narratorSupported;
+    });
+}
+
+function updateAudioToggleLabel() {
+    audioToggleBtn.innerText = isMuted ? '\uD83D\uDD07 Sound Off' : '\uD83D\uDD0A Sound On';
+}
+
+function updateNarratorToggleLabel() {
+    if (!narratorSupported) {
+        narratorToggleBtn.disabled = true;
+        narratorToggleBtn.innerText = '\uD83D\uDDE3 Narrator N/A';
+        narratorToggleBtn.title = 'Speech narration is not supported in this browser.';
+        return;
+    }
+
+    narratorToggleBtn.disabled = isMuted;
+    narratorToggleBtn.innerText = narratorEnabled
+        ? (isMuted ? '\uD83D\uDDE3 Narrator Paused' : '\uD83D\uDDE3 Narrator On')
+        : '\uD83D\uDDE3 Narrator Off';
+    narratorToggleBtn.title = isMuted ? 'Turn sound back on to use the narrator.' : 'Toggle spoken DM narration.';
+}
+
+function syncAudioControls() {
+    updateAudioToggleLabel();
+    updateNarratorToggleLabel();
+}
+
+function setSettingsPanelVisibility(isVisible) {
+    settingsPanelEl.hidden = !isVisible;
+    settingsToggleBtn.setAttribute('aria-expanded', String(isVisible));
+}
+
+function canNarrate() {
+    return narratorSupported && narratorEnabled && !isMuted;
+}
+
+function stopNarration() {
+    if (speechEngine) {
+        speechEngine.cancel();
+    }
+}
+
+function speakNarration(text) {
+    if (!canNarrate()) return;
+
+    const narration = String(text || '')
+        .replace(/[^\x00-\x7F]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+    if (!narration) return;
+
+    stopNarration();
+
+    const utterance = new SpeechSynthesisUtterance(narration);
+    if (selectedNarratorVoice) {
+        utterance.voice = selectedNarratorVoice;
+    }
+    utterance.lang = selectedNarratorVoice?.lang || 'en-US';
+    utterance.rate = narratorVoiceStyle === 'male' ? 0.94 : 1.02;
+    utterance.pitch = narratorVoiceStyle === 'male' ? 0.86 : 1.12;
+    speechEngine.speak(utterance);
 }
 
 function triggerVisualEffect(type) {
@@ -79,6 +254,87 @@ function triggerVisualEffect(type) {
         void logEl.offsetWidth;
         logEl.classList.add('flash-green');
     }
+}
+
+function wait(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function syncRollControls() {
+    const disableRollInputs = gameOver || isRollPending;
+    submitBtn.disabled = disableRollInputs;
+    digitalBtn.disabled = disableRollInputs;
+    inputEl.disabled = disableRollInputs;
+    virtualDiceToggleEl.disabled = isRollPending;
+}
+
+function updateVirtualDiceToggleLabel() {
+    virtualDiceToggleLabelEl.innerText = virtualDiceToggleEl.checked ? 'Virtual On' : 'Virtual Off';
+}
+
+function syncVirtualDiceDisplay() {
+    virtualDiceStageEl.hidden = true;
+    virtualDiceStageEl.classList.remove('is-visible');
+    virtualDiceStageEl.classList.remove('is-rolling');
+    virtualDieEl.classList.remove('is-rolling');
+
+    if (!currentEncounter) return;
+
+    virtualDieEl.dataset.die = String(currentEncounter.requiredDie);
+    virtualDieLabelEl.innerText = `d${currentEncounter.requiredDie}`;
+    virtualDieValueEl.innerText = '?';
+}
+
+async function playVirtualRoll(maxDie, finalRoll, activeRunToken) {
+    if (!virtualDiceToggleEl.checked) {
+        await wait(250);
+        return;
+    }
+
+    virtualDiceStageEl.hidden = false;
+    virtualDiceStageEl.classList.remove('is-visible');
+    virtualDiceStageEl.classList.remove('is-rolling');
+    virtualDieEl.classList.remove('is-rolling');
+    virtualDieEl.dataset.die = String(maxDie);
+    virtualDieLabelEl.innerText = `d${maxDie}`;
+    void virtualDieEl.offsetWidth;
+    virtualDiceStageEl.classList.add('is-visible');
+    virtualDieEl.classList.add('is-rolling');
+    virtualDiceStageEl.classList.add('is-rolling');
+    virtualDieValueEl.innerText = String(Math.floor(Math.random() * maxDie) + 1);
+
+    const intervalMs = maxDie === 100 ? 55 : 80;
+    const intervalId = setInterval(() => {
+        virtualDieValueEl.innerText = String(Math.floor(Math.random() * maxDie) + 1);
+    }, intervalMs);
+
+    await wait(850);
+
+    clearInterval(intervalId);
+    if (runToken !== activeRunToken) {
+        syncVirtualDiceDisplay();
+        return;
+    }
+
+    virtualDieValueEl.innerText = String(finalRoll);
+    virtualDieEl.classList.remove('is-rolling');
+    virtualDiceStageEl.classList.remove('is-rolling');
+    await wait(325);
+
+    if (runToken !== activeRunToken) {
+        syncVirtualDiceDisplay();
+        return;
+    }
+
+    virtualDiceStageEl.classList.remove('is-visible');
+    await wait(180);
+
+    if (runToken !== activeRunToken) {
+        syncVirtualDiceDisplay();
+        return;
+    }
+
+    virtualDiceStageEl.hidden = true;
 }
 
 function generateEncounter() {
@@ -109,21 +365,25 @@ function generateEncounter() {
 }
 
 function startRun() {
+    runToken += 1;
+    stopNarration();
     hp = MAX_HP;
     currentRoom = 0;
     gameOver = false;
     currentEncounter = null;
+    isRollPending = false;
     
     hpEl.innerText = hp;
     roomEl.innerText = currentRoom;
     logEl.innerHTML = '';
+    inputEl.value = '';
     
-    // Re-enable inputs in case restarting from a game over state
-    submitBtn.disabled = false;
-    digitalBtn.disabled = false;
-    inputEl.disabled = false;
+    updateVirtualDiceToggleLabel();
+    syncRollControls();
+    syncVirtualDiceDisplay();
+    syncAudioControls();
 
-    addLog("🧙‍♂️ DM: The dungeon has shifted. A new run begins. Survive 10 rooms.", "dm-text");
+    addLog("\uD83E\uDDD9\u200D\u2642\uFE0F DM: The dungeon has shifted. A new run begins. Survive 10 rooms.", "dm-text");
     addLog("--------------------------------------------------", "dm-text");
     nextRoom();
 }
@@ -141,43 +401,56 @@ function nextRoom() {
     inputEl.placeholder = `Roll a d${currentEncounter.requiredDie}...`;
     inputEl.min = 1;
     inputEl.max = currentEncounter.requiredDie;
+    syncVirtualDiceDisplay();
     
-    addLog(`DM: ${currentEncounter.prompt}`, "dm-text");
+    addLog(`DM: ${currentEncounter.prompt}`, "dm-text", {
+        narrate: true,
+        narrationText: currentEncounter.prompt
+    });
 }
 
-function handleRoll(rollValue) {
-    if (gameOver || !currentEncounter) return;
+async function handleRoll(rollValue) {
+    if (gameOver || !currentEncounter || isRollPending) return;
 
     if (!isMuted && audioCtx.state === 'suspended') audioCtx.resume();
 
     const maxDie = currentEncounter.requiredDie;
-    let roll = rollValue || parseInt(inputEl.value);
+    const encounterAtRoll = currentEncounter;
+    const runTokenAtRoll = runToken;
+    let roll = rollValue ?? parseInt(inputEl.value, 10);
 
     if (isNaN(roll) || roll < 1 || roll > maxDie) {
         alert(`Please enter a valid roll between 1 and ${maxDie}.`);
         return;
     }
 
+    isRollPending = true;
+    syncRollControls();
     soundRoll();
-    inputEl.value = ''; 
+    inputEl.value = '';
+    await playVirtualRoll(maxDie, roll, runTokenAtRoll);
+
+    if (gameOver || runToken !== runTokenAtRoll || currentEncounter !== encounterAtRoll || !isRollPending) {
+        return;
+    }
     addLog(`🎲 You rolled a ${roll} (d${maxDie}).`, "player-text");
 
-    setTimeout(() => {
-        if (roll === maxDie && maxDie !== 4) {
-            addLog(`🌟 MAX ROLL! Critical Success!`, "success-text");
-            resolveEncounter(true);
-        } else if (roll === 1) {
-            addLog(`💀 NATURAL 1! Critical Failure!`, "damage-text");
-            resolveEncounter(false, true); 
-        } else if (roll >= currentEncounter.dc) {
-            resolveEncounter(true);
-        } else {
-            resolveEncounter(false);
-        }
-    }, 400);
+    if (roll === maxDie && maxDie !== 4) {
+        addLog(`🌟 MAX ROLL! Critical Success!`, "success-text");
+        resolveEncounter(true);
+    } else if (roll === 1) {
+        addLog(`💀 NATURAL 1! Critical Failure!`, "damage-text");
+        resolveEncounter(false, true);
+    } else if (roll >= currentEncounter.dc) {
+        resolveEncounter(true);
+    } else {
+        resolveEncounter(false);
+    }
 }
 
 function resolveEncounter(isSuccess, isCritFail = false) {
+    const runTokenAtResolve = runToken;
+
     if (isSuccess) {
         soundSuccess();
         triggerVisualEffect('success');
@@ -191,10 +464,13 @@ function resolveEncounter(isSuccess, isCritFail = false) {
         }
 
         setTimeout(() => {
+            if (runToken !== runTokenAtResolve) return;
             if(!gameOver) {
                 addLog("--------------------------------------------------", "dm-text");
                 nextRoom();
             }
+            isRollPending = false;
+            syncRollControls();
         }, 1200);
     } else {
         soundDamage();
@@ -211,8 +487,15 @@ function resolveEncounter(isSuccess, isCritFail = false) {
             loseGame();
         } else {
             setTimeout(() => {
+                if (runToken !== runTokenAtResolve) return;
                 if(!gameOver) {
-                    addLog(`DM: You are still trapped! Roll d${currentEncounter.requiredDie} again. (DC: ${currentEncounter.dc})`, "dm-text");
+                    const retryPrompt = `You are still trapped! Roll d${currentEncounter.requiredDie} again. (DC: ${currentEncounter.dc})`;
+                    addLog(`DM: ${retryPrompt}`, "dm-text", {
+                        narrate: true,
+                        narrationText: retryPrompt
+                    });
+                    isRollPending = false;
+                    syncRollControls();
                 }
             }, 1200);
         }
@@ -221,6 +504,8 @@ function resolveEncounter(isSuccess, isCritFail = false) {
 
 function loseGame() {
     gameOver = true;
+    isRollPending = false;
+    stopNarration();
     hpEl.innerText = "0";
     addLog("--------------------------------------------------", "damage-text");
     addLog(`🪦 YOU DIED in room ${currentRoom}. Click Restart above to try again.`, "damage-text");
@@ -229,6 +514,8 @@ function loseGame() {
 
 function winGame() {
     gameOver = true;
+    isRollPending = false;
+    stopNarration();
     soundSuccess();
     setTimeout(() => playTone(880, 'sine', 0.5), 300);
     addLog("--------------------------------------------------", "success-text");
@@ -237,9 +524,21 @@ function winGame() {
 }
 
 function endGameUI() {
-    submitBtn.disabled = true;
-    digitalBtn.disabled = true;
-    inputEl.disabled = true;
+    syncRollControls();
+    syncAudioControls();
+}
+
+loadNarratorSettings();
+syncNarratorVoiceInputs();
+syncNarratorVoiceSelection();
+syncAudioControls();
+
+if (speechEngine) {
+    if (typeof speechEngine.addEventListener === 'function') {
+        speechEngine.addEventListener('voiceschanged', syncNarratorVoiceSelection);
+    } else {
+        speechEngine.onvoiceschanged = syncNarratorVoiceSelection;
+    }
 }
 
 // --- EVENT LISTENERS ---
@@ -251,27 +550,90 @@ digitalBtn.addEventListener('click', () => {
     }
 });
 
-inputEl.addEventListener("keypress", function(event) {
-    if (event.key === "Enter") {
+inputEl.addEventListener('keypress', event => {
+    if (event.key === 'Enter') {
         event.preventDefault();
         handleRoll();
+    }
+});
+
+virtualDiceToggleEl.addEventListener('change', () => {
+    updateVirtualDiceToggleLabel();
+    syncVirtualDiceDisplay();
+});
+
+narratorToggleBtn.addEventListener('click', () => {
+    if (narratorToggleBtn.disabled) return;
+
+    narratorEnabled = !narratorEnabled;
+    saveNarratorSettings();
+    syncAudioControls();
+
+    if (!narratorEnabled) {
+        stopNarration();
+        return;
+    }
+
+    const narrationPreview = currentEncounter ? currentEncounter.prompt : 'The dungeon awaits your next roll.';
+    speakNarration(narrationPreview);
+});
+
+settingsToggleBtn.addEventListener('click', event => {
+    event.stopPropagation();
+    setSettingsPanelVisibility(settingsPanelEl.hidden);
+});
+
+narratorVoiceInputEls.forEach(inputEl => {
+    inputEl.addEventListener('change', () => {
+        if (!inputEl.checked) return;
+
+        narratorVoiceStyle = inputEl.value === 'male' ? 'male' : 'female';
+        saveNarratorSettings();
+        syncNarratorVoiceInputs();
+        syncNarratorVoiceSelection();
+
+        if (canNarrate()) {
+            const narrationPreview = currentEncounter ? currentEncounter.prompt : 'The dungeon awaits your next roll.';
+            speakNarration(narrationPreview);
+        }
+    });
+});
+
+document.addEventListener('click', event => {
+    if (settingsPanelEl.hidden) return;
+    if (settingsPanelEl.contains(event.target) || settingsToggleBtn.contains(event.target)) return;
+    setSettingsPanelVisibility(false);
+});
+
+document.addEventListener('keydown', event => {
+    if (event.key === 'Escape' && !settingsPanelEl.hidden) {
+        setSettingsPanelVisibility(false);
     }
 });
 
 // Audio Toggle
 audioToggleBtn.addEventListener('click', () => {
     isMuted = !isMuted;
-    audioToggleBtn.innerText = isMuted ? '🔇 Sound Off' : '🔊 Sound On';
-    if (!isMuted && audioCtx.state === 'suspended') {
-        audioCtx.resume();
+
+    if (isMuted) {
+        stopNarration();
+    } else {
+        if (audioCtx.state === 'suspended') {
+            audioCtx.resume();
+        }
+
+        if (narratorEnabled && currentEncounter) {
+            speakNarration(currentEncounter.prompt);
+        }
     }
+
+    syncAudioControls();
 });
 
 // Restart Anytime
 restartAnytimeBtn.addEventListener('click', () => {
-    // Optional: Only confirm if they are mid-game and alive
     if (!gameOver && currentRoom > 0 && hp > 0) {
-        if (!confirm("Abandon current run and start over?")) return;
+        if (!confirm('Abandon current run and start over?')) return;
     }
     startRun();
 });

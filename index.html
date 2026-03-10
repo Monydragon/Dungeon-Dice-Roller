@@ -32,9 +32,43 @@
 
         #top-bar {
             width: 100%;
-            display: flex;
-            justify-content: space-between;
+            display: grid;
+            grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr) minmax(0, 1.5fr);
+            gap: 10px;
             margin-bottom: 10px;
+            align-items: start;
+        }
+
+        .top-bar-group {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+
+        .top-bar-group > .icon-btn {
+            width: auto;
+            flex: 1 1 0;
+        }
+
+        .top-bar-group > .icon-toggle {
+            flex: 1 1 0;
+        }
+
+        .top-bar-group > .icon-toggle .icon-btn {
+            width: 100%;
+        }
+
+        .top-bar-group-center {
+            justify-content: center;
+        }
+
+        .top-bar-group-right {
+            justify-content: flex-end;
+        }
+
+        .top-bar-group-right > .icon-btn-compact {
+            flex: 0 0 auto;
         }
 
         .icon-btn {
@@ -46,9 +80,127 @@
             font-size: 1rem;
             cursor: pointer;
             font-weight: bold;
+            width: 100%;
         }
         .icon-btn:hover { background-color: #444; }
         .icon-btn:active { transform: scale(0.95); }
+        .icon-btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            filter: grayscale(100%);
+        }
+
+        .icon-btn-compact {
+            width: auto;
+            min-width: 48px;
+            padding-inline: 14px;
+        }
+
+        .icon-toggle {
+            position: relative;
+            display: block;
+        }
+
+        .icon-toggle input {
+            position: absolute;
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        .icon-toggle input:disabled + .icon-btn {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        .icon-toggle input:checked + .icon-btn {
+            background-color: #6b5320;
+        }
+
+        .icon-toggle input:not(:checked) + .icon-btn {
+            background-color: #4a3232;
+        }
+
+        #settings-panel {
+            width: min(320px, 100%);
+            align-self: flex-end;
+            margin-bottom: 10px;
+            padding: 14px;
+            border: 1px solid #333;
+            border-radius: 10px;
+            background: linear-gradient(180deg, #242424, #171717);
+            box-shadow: 0 14px 28px rgba(0, 0, 0, 0.35);
+            text-align: left;
+        }
+
+        #settings-panel[hidden] {
+            display: none;
+        }
+
+        .settings-title {
+            margin: 0 0 12px;
+            font-size: 0.95rem;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: #d4af37;
+        }
+
+        .settings-row {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .settings-label {
+            font-size: 0.95rem;
+            font-weight: 700;
+            color: #f5f5f5;
+        }
+
+        .voice-options {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .voice-option {
+            flex: 1 1 0;
+            min-width: 120px;
+            position: relative;
+        }
+
+        .voice-option input {
+            position: absolute;
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        .voice-option span {
+            display: block;
+            padding: 10px 12px;
+            border-radius: 8px;
+            border: 1px solid #454545;
+            background-color: #202020;
+            text-align: center;
+            font-weight: 700;
+            cursor: pointer;
+        }
+
+        .voice-option input:checked + span {
+            border-color: #d4af37;
+            background-color: #3b2f12;
+        }
+
+        .voice-option input:disabled + span {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .settings-note {
+            margin: 0;
+            font-size: 0.88rem;
+            line-height: 1.4;
+            color: #bababa;
+        }
 
         #main-logo {
     		width: 100%;              /* Allows it to stretch across the container */
@@ -104,6 +256,112 @@
             padding-bottom: max(15px, env(safe-area-inset-bottom));
         }
 
+        #virtual-dice-stage {
+            position: fixed;
+            inset: 0;
+            display: grid;
+            place-items: center;
+            padding: 24px;
+            pointer-events: none;
+            z-index: 30;
+            opacity: 0;
+            background: radial-gradient(circle at center, rgba(10, 10, 10, 0.18), transparent 60%);
+            transition: opacity 0.18s ease;
+        }
+
+        #virtual-dice-stage[hidden] {
+            display: none;
+        }
+
+        #virtual-dice-stage.is-visible {
+            opacity: 1;
+        }
+
+        #virtual-dice-stage.is-rolling {
+            background: radial-gradient(circle at center, rgba(10, 10, 10, 0.28), transparent 60%);
+        }
+
+        #virtual-die {
+            --die-accent: #4dabf7;
+            position: relative;
+            width: min(180px, 45vw);
+            aspect-ratio: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            filter: drop-shadow(0 16px 24px rgba(0, 0, 0, 0.4));
+        }
+
+        #virtual-die::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(145deg, var(--die-accent), #151923 72%);
+            border: 2px solid rgba(255, 255, 255, 0.12);
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.25);
+            clip-path: inset(0 round 18px);
+        }
+
+        #virtual-die[data-die="4"] { --die-accent: #d76a35; }
+        #virtual-die[data-die="6"] { --die-accent: #d4af37; }
+        #virtual-die[data-die="8"] { --die-accent: #6aa9ff; }
+        #virtual-die[data-die="10"] { --die-accent: #43b37a; }
+        #virtual-die[data-die="12"] { --die-accent: #8d63d2; }
+        #virtual-die[data-die="20"] { --die-accent: #c65c74; }
+        #virtual-die[data-die="100"] { --die-accent: #4bb5c1; }
+
+        #virtual-die[data-die="4"]::before {
+            clip-path: polygon(50% 0%, 0% 100%, 100% 100%);
+        }
+
+        #virtual-die[data-die="8"]::before {
+            clip-path: polygon(30% 0%, 70% 0%, 100% 30%, 100% 70%, 70% 100%, 30% 100%, 0% 70%, 0% 30%);
+        }
+
+        #virtual-die[data-die="10"]::before {
+            clip-path: polygon(50% 0%, 80% 10%, 100% 40%, 94% 76%, 70% 100%, 30% 100%, 6% 76%, 0% 40%, 20% 10%);
+        }
+
+        #virtual-die[data-die="12"]::before {
+            clip-path: polygon(35% 0%, 65% 0%, 90% 18%, 100% 50%, 90% 82%, 65% 100%, 35% 100%, 10% 82%, 0% 50%, 10% 18%);
+        }
+
+        #virtual-die[data-die="20"]::before {
+            clip-path: polygon(50% 0%, 79% 9%, 97% 35%, 97% 65%, 79% 91%, 50% 100%, 21% 91%, 3% 65%, 3% 35%, 21% 9%);
+        }
+
+        #virtual-die[data-die="100"]::before {
+            clip-path: circle(50% at 50% 50%);
+        }
+
+        .virtual-die-copy {
+            position: relative;
+            z-index: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 10px;
+        }
+
+        #virtual-die[data-die="4"] .virtual-die-copy {
+            transform: translateY(12px);
+        }
+
+        #virtual-die-label {
+            font-size: 0.85rem;
+            letter-spacing: 0.16em;
+            text-transform: uppercase;
+            color: #ecf1ff;
+        }
+
+        #virtual-die-value {
+            font-size: clamp(2.6rem, 8vw, 4rem);
+            font-weight: 900;
+            line-height: 1;
+            color: #ffffff;
+            text-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
+        }
+
         .input-row {
             display: flex;
             gap: 10px;
@@ -157,14 +415,85 @@
         }
         .flash-green { animation: flashGreen 0.5s ease-out; }
 
+        @keyframes dieTumble {
+            0% { transform: scale(0.88) rotate(0deg); }
+            35% { transform: scale(1.04) rotate(-15deg); }
+            70% { transform: scale(1.02) rotate(12deg); }
+            100% { transform: scale(1) rotate(0deg); }
+        }
+
+        #virtual-die.is-rolling {
+            animation: dieTumble 0.75s ease-in-out;
+        }
+
+        @media (max-width: 520px) {
+            #virtual-dice-stage {
+                padding: 18px;
+            }
+        }
+
+        @media (max-width: 760px) {
+            #top-bar {
+                grid-template-columns: 1fr;
+            }
+
+            .top-bar-group,
+            .top-bar-group-center,
+            .top-bar-group-right {
+                justify-content: center;
+            }
+
+            #settings-panel {
+                align-self: stretch;
+                width: 100%;
+            }
+        }
+
     </style>
 </head>
 <body>
 
     <div id="header">
         <div id="top-bar">
-            <button id="audio-toggle-btn" class="icon-btn">🔊 Sound On</button>
-            <button id="restart-anytime-btn" class="icon-btn">🔄 Restart</button>
+            <div class="top-bar-group">
+                <button id="audio-toggle-btn" class="icon-btn">&#128266; Sound On</button>
+                <button id="narrator-toggle-btn" class="icon-btn">&#128483; Narrator Off</button>
+            </div>
+            <div class="top-bar-group top-bar-group-center">
+                <label class="icon-toggle" for="virtual-dice-toggle">
+                    <input type="checkbox" id="virtual-dice-toggle" checked>
+                    <span id="virtual-dice-toggle-label" class="icon-btn">Virtual On</span>
+                </label>
+            </div>
+            <div class="top-bar-group top-bar-group-right">
+                <button id="restart-anytime-btn" class="icon-btn">&#128260; Restart</button>
+                <button
+                    id="settings-toggle-btn"
+                    class="icon-btn icon-btn-compact"
+                    type="button"
+                    aria-expanded="false"
+                    aria-controls="settings-panel"
+                    aria-label="Open settings"
+                    title="Settings"
+                >&#9881;</button>
+            </div>
+        </div>
+        <div id="settings-panel" hidden>
+            <p class="settings-title">Settings</p>
+            <div class="settings-row">
+                <span class="settings-label">Narrator Voice</span>
+                <div class="voice-options" role="radiogroup" aria-label="Narrator voice">
+                    <label class="voice-option">
+                        <input type="radio" name="narrator-voice" value="female" checked>
+                        <span>Female</span>
+                    </label>
+                    <label class="voice-option">
+                        <input type="radio" name="narrator-voice" value="male">
+                        <span>Male</span>
+                    </label>
+                </div>
+                <p id="narrator-voice-status" class="settings-note">Uses the closest narrator voice your browser provides.</p>
+            </div>
         </div>
         
         <img src="src/assets/dungeon_dice_roller_logo.jpg" id="main-logo" alt="Dungeon Dice Roller Logo">
@@ -176,6 +505,14 @@
     </div>
     
     <div id="story-log"></div>
+    <div id="virtual-dice-stage" aria-live="polite" hidden>
+        <div id="virtual-die" data-die="20">
+            <div class="virtual-die-copy">
+                <span id="virtual-die-label">d20</span>
+                <span id="virtual-die-value">?</span>
+            </div>
+        </div>
+    </div>
     
     <div id="controls">
         <button id="digital-btn" class="action-btn">🎲 Roll Digitally</button>
